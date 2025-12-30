@@ -155,7 +155,7 @@ def eval_partial_for_my_data(data_base_path,
     print("Building components...")
     svol, evol = vol_range
     vols = list(range(svol, evol+1))
-    data_edges_pretokenized_name = 'asichurter/pdbert-base'
+    data_edges_pretokenized_name = 'pdbert-base'
 
     tokenizer = PretrainedTransformerTokenizer(tokenizer_name, max_length=max_tokens)
     results = {}
