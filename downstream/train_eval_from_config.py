@@ -22,7 +22,12 @@ args = read_train_eval_from_config_args()
 python_bin = json.load(open('global_vars.json'))[platform.node()]['python_bin']
 eval_script_path = f'eval/{args.eval_script}.py'
 converted_json_file_path = f'temp_config.json'
-serialization_dir = f'../data/models/extrinsic/{args.task_name}/'
+
+# Model path: use model_task_name if specified, otherwise use task_name
+model_task = args.model_task_name if args.model_task_name else args.task_name
+serialization_dir = f'../data/models/extrinsic/{model_task}/'
+
+# Data path: always use task_name
 data_base_path = f'../data/datasets/extrinsic/{args.task_name}/'
 
 ############### Do Preparations ###############
