@@ -37,51 +37,63 @@ dump_json(config_json, converted_json_file_path, indent=None)
 mylogger.info('main', f"Args: {args}")
 
 ############### Do Train ###############
-# Manually set cuda device to avoid additional memory usage bug on GPU:0
-# See https://github.com/pytorch/pytorch/issues/66203
-cuda_device = config_json.get('trainer').get('cuda_device')
-cuda_device = int(cuda_device)
-torch.cuda.set_device(cuda_device)
+# Skip training if --test-only is specified
+if not getattr(args, 'test_only', False):
+    # Manually set cuda device to avoid additional memory usage bug on GPU:0
+    # See https://github.com/pytorch/pytorch/issues/66203
+    cuda_device = config_json.get('trainer').get('cuda_device')
+    cuda_device = int(cuda_device)
+    torch.cuda.set_device(cuda_device)
 
-print('start to train from file...')
-ret = train_model_from_file(
-    converted_json_file_path,
-    serialization_dir,
-    force=True,
-)
-# Try release GPU memory
-del ret
-torch.cuda.empty_cache()
+    print('start to train from file...')
+    ret = train_model_from_file(
+        converted_json_file_path,
+        serialization_dir,
+        force=True,
+    )
+    # Try release GPU memory
+    del ret
+    torch.cuda.empty_cache()
+    print('Training completed.')
+else:
+    print('Skipping training (--test-only mode)')
+    # Still need cuda_device for testing
+    cuda_device = config_json.get('trainer').get('cuda_device')
+    cuda_device = int(cuda_device)
 
 ############### Do Test ###############
-for test_model_file_name in args.test_model_names.split(','):
-    patience = 5
-    mylogger.info('main', f'Start to test File {test_model_file_name}')
-    test_cmd_args = {
-        'data_base_path': data_base_path,
-        'serial_dir': serialization_dir,
-        'model_name': test_model_file_name,
-        'data_file_name': args.data_file_name,
-        'cuda': cuda_device,
-        'average': args.average,
-        'extra_averages': args.extra_averages,
-        'batch_size': args.test_batch_size,
-        **json.loads(args.extra_eval_configs)
-    }
-    test_cmd_arg_str = make_cli_args(test_cmd_args, {}, skip_none=True)
-    test_cmd = f"{python_bin} {eval_script_path}{test_cmd_arg_str}"
+# Skip testing if --train-only is specified
+if not getattr(args, 'train_only', False):
+    for test_model_file_name in args.test_model_names.split(','):
+        patience = 5
+        mylogger.info('main', f'Start to test File {test_model_file_name}')
+        test_cmd_args = {
+            'data_base_path': data_base_path,
+            'serial_dir': serialization_dir,
+            'model_name': test_model_file_name,
+            'data_file_name': args.data_file_name,
+            'cuda': cuda_device,
+            'average': args.average,
+            'extra_averages': args.extra_averages,
+            'batch_size': args.test_batch_size,
+            **json.loads(args.extra_eval_configs)
+        }
+        test_cmd_arg_str = make_cli_args(test_cmd_args, {}, skip_none=True)
+        test_cmd = f"{python_bin} {eval_script_path}{test_cmd_arg_str}"
 
-    # Try multiple times for test script running
-    while patience > 0:
-        try:
-            subprocess.run(test_cmd, shell=True, check=True)
-            torch.cuda.empty_cache()
-            break
-        except subprocess.CalledProcessError as e:
-            mylogger.error('test', f'Error when run test script, err: {e}')
-            patience -= 1
-    if patience == 0:
-        mylogger.error('test', f'Fail to run test, patience runs out. Cmd: {test_cmd}')
+        # Try multiple times for test script running
+        while patience > 0:
+            try:
+                subprocess.run(test_cmd, shell=True, check=True)
+                torch.cuda.empty_cache()
+                break
+            except subprocess.CalledProcessError as e:
+                mylogger.error('test', f'Error when run test script, err: {e}')
+                patience -= 1
+        if patience == 0:
+            mylogger.error('test', f'Fail to run test, patience runs out. Cmd: {test_cmd}')
+else:
+    print('Skipping testing (--train-only mode)')
 
 # Exit to release GPU memory
 sys.exit(0)
