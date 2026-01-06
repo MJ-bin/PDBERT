@@ -29,6 +29,10 @@ def read_train_eval_from_config_args():
     parser.add_argument('-config', type=str, default='', help='config path of training')
     parser.add_argument('-average', required=True, type=str, help="average method for classification metric calculation")
 
+    # Mode selection (train/test separation)
+    parser.add_argument('--train-only', action='store_true', help="Run training only, skip testing")
+    parser.add_argument('--test-only', action='store_true', help="Run testing only, skip training (requires pre-trained model)")
+
     # Extra configs
     parser.add_argument('-eval_script', type=str, default='eval_classification', help='test script file to do test')
     parser.add_argument('-test_batch_size', default=32, type=int)
