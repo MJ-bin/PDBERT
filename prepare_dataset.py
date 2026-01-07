@@ -6,16 +6,19 @@ RealVul Dataset Preparation Script for PDBERT
 컨테이너 내부에서도 직접 실행 가능합니다.
 
 Usage:
-    python prepare_dataset.py --train <project>   # 학습 데이터 (/PDBERT/.../realvul/)
-    python prepare_dataset.py --test <project>    # 테스트 데이터 (/PDBERT/.../realvul_test/)
+    python prepare_dataset.py --path <dataset_path>
+
+Dataset Paths:
+    realvul/<project>       # 학습용 데이터셋
+    realvul_test/<project>  # 테스트용 데이터셋
 
 Projects:
     Chrome, FFmpeg, ImageMagick, jasper, krb5, linux, openssl, php-src, qemu, tcpdump
     Real_Vul (전체 통합)
 
 Examples:
-    python prepare_dataset.py --train jasper
-    python prepare_dataset.py --test Real_Vul
+    docker exec pdbert python /PDBERT/prepare_dataset.py --path realvul/jasper
+    docker exec pdbert python /PDBERT/prepare_dataset.py --path realvul_test/Real_Vul
 """
 
 import csv
@@ -34,10 +37,9 @@ AVAILABLE_PROJECTS = [
     "linux", "openssl", "php-src", "qemu", "tcpdump", "Real_Vul"
 ]
 
-TRAIN_BASE_DIR = "/PDBERT/data/datasets/extrinsic/vul_detect/realvul"
-TEST_BASE_DIR = "/PDBERT/data/datasets/extrinsic/vul_detect/realvul_test"
+BASE_DIR = "/PDBERT/data/datasets/extrinsic/vul_detect"
 CONTAINER_NAME = "pdbert"
-CONTAINER_SCRIPT_PATH = "/tmp/prepare_dataset.py"
+CONTAINER_SCRIPT_PATH = "/PDBERT/prepare_dataset.py"
 
 
 def is_in_container() -> bool:
@@ -174,7 +176,7 @@ def process_project(project: str, base_dir: Path) -> int:
     return 0
 
 
-def run_in_container(project: str, base_dir: str) -> int:
+def run_in_container(dataset_path: str) -> int:
     """Copy script to container and execute."""
     script_path = Path(__file__).resolve()
     
@@ -192,9 +194,8 @@ def run_in_container(project: str, base_dir: str) -> int:
     print(f"[INFO] Executing in container '{CONTAINER_NAME}'...")
     print("-" * 60)
     
-    mode = "--train" if base_dir == TRAIN_BASE_DIR else "--test"
     exec_result = subprocess.run(
-        ["docker", "exec", CONTAINER_NAME, "python3", CONTAINER_SCRIPT_PATH, mode, project],
+        ["docker", "exec", CONTAINER_NAME, "python3", CONTAINER_SCRIPT_PATH, "--path", dataset_path],
         text=True
     )
     return exec_result.returncode
@@ -213,24 +214,53 @@ def check_container_running() -> bool:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Prepare RealVul dataset for PDBERT")
-    mode_group = parser.add_mutually_exclusive_group(required=True)
-    mode_group.add_argument("--train", dest="project_train", choices=AVAILABLE_PROJECTS, metavar="PROJECT")
-    mode_group.add_argument("--test", dest="project_test", choices=AVAILABLE_PROJECTS, metavar="PROJECT")
+    parser = argparse.ArgumentParser(
+        description="Prepare RealVul dataset for PDBERT",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+    docker exec pdbert python /PDBERT/prepare_dataset.py --path realvul/jasper
+    docker exec pdbert python /PDBERT/prepare_dataset.py --path realvul_test/Real_Vul
+        """
+    )
+    parser.add_argument(
+        "--path", 
+        required=True,
+        help="Dataset path: realvul/<project> or realvul_test/<project>"
+    )
     
     args = parser.parse_args()
-    project = args.project_train or args.project_test
-    base_dir = TRAIN_BASE_DIR if args.project_train else TEST_BASE_DIR
+    
+    # Parse dataset path: realvul/jasper -> (realvul, jasper)
+    path_parts = args.path.strip('/').split('/')
+    if len(path_parts) != 2:
+        print(f"[ERROR] Invalid path format: {args.path}")
+        print("[INFO] Expected format: realvul/<project> or realvul_test/<project>")
+        return 1
+    
+    dataset_type, project = path_parts
+    
+    if dataset_type not in ["realvul", "realvul_test"]:
+        print(f"[ERROR] Invalid dataset type: {dataset_type}")
+        print("[INFO] Must be 'realvul' or 'realvul_test'")
+        return 1
+    
+    if project not in AVAILABLE_PROJECTS:
+        print(f"[ERROR] Invalid project: {project}")
+        print(f"[INFO] Available: {', '.join(AVAILABLE_PROJECTS)}")
+        return 1
+    
+    full_path = f"{BASE_DIR}/{dataset_type}/{project}" if project != "Real_Vul" else f"{BASE_DIR}/{dataset_type}"
     
     if is_in_container():
         # Running inside container - execute directly
-        return process_project(project, Path(base_dir))
+        return process_project(project, Path(full_path))
     else:
         # Running on host - copy and execute in container
         print("=" * 60)
         print("RealVul Dataset Preparation for PDBERT (Host)")
-        print(f"  Project: {project}")
-        print(f"  Target:  {base_dir}")
+        print(f"  Dataset Path: {args.path}")
+        print(f"  Full Path:    {full_path}")
         print("=" * 60)
         
         if not check_container_running():
@@ -238,7 +268,7 @@ def main():
             print("[INFO] Start with: docker compose up -d pdbert")
             return 1
         
-        return run_in_container(project, base_dir)
+        return run_in_container(args.path)
 
 
 if __name__ == "__main__":
