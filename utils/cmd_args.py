@@ -34,7 +34,7 @@ def read_train_eval_from_config_args():
     parser.add_argument('--test-only', action='store_true', help="Run testing only, skip training (requires pre-trained model)")
     
     # Model path (for --test-only with different model location)
-    parser.add_argument('-model_task_name', type=str, default=None, help="Task name for model path (if different from data path). Use when testing with a model trained on different data.")
+    parser.add_argument('-model_path', type=str, default=None, help="Model path relative to ../data/models/extrinsic/ (e.g., vul_detect/reveal). If not specified, uses task_name.")
 
     # Extra configs
     parser.add_argument('-eval_script', type=str, default='eval_classification', help='test script file to do test')
