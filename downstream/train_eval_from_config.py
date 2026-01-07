@@ -23,8 +23,8 @@ python_bin = json.load(open('global_vars.json'))[platform.node()]['python_bin']
 eval_script_path = f'eval/{args.eval_script}.py'
 converted_json_file_path = f'temp_config.json'
 
-# Model path: use model_task_name if specified, otherwise use task_name
-model_task = args.model_task_name if args.model_task_name else args.task_name
+# Model path: use model_path if specified, otherwise use task_name
+model_task = args.model_path if args.model_path else args.task_name
 serialization_dir = f'../data/models/extrinsic/{model_task}/'
 
 # Data path: always use task_name
