@@ -250,7 +250,8 @@ Examples:
         print(f"[INFO] Available: {', '.join(AVAILABLE_PROJECTS)}")
         return 1
     
-    full_path = f"{BASE_DIR}/{dataset_type}/{project}" if project != "Real_Vul" else f"{BASE_DIR}/{dataset_type}"
+    # JSON 파일은 CSV와 동일한 위치에 생성 (realvul/ 또는 realvul_test/)
+    full_path = f"{BASE_DIR}/{dataset_type}"
     
     if is_in_container():
         # Running inside container - execute directly
