@@ -6,19 +6,12 @@ RealVul Dataset Preparation Script for PDBERT
 컨테이너 내부에서도 직접 실행 가능합니다.
 
 Usage:
-    python prepare_dataset.py --path <dataset_path>
-
-Dataset Paths:
-    realvul/<project>       # 학습용 데이터셋
-    realvul_test/<project>  # 테스트용 데이터셋
-
-Projects:
-    Chrome, FFmpeg, ImageMagick, jasper, krb5, linux, openssl, php-src, qemu, tcpdump
-    Real_Vul (전체 통합)
+    python prepare_dataset.py --path <absolute_dataset_path> [--output <output_path>]
 
 Examples:
-    docker exec pdbert python /PDBERT/prepare_dataset.py --path realvul/jasper
-    docker exec pdbert python /PDBERT/prepare_dataset.py --path realvul_test/Real_Vul
+    python prepare_dataset.py --path /PDBERT/data/datasets/extrinsic/vul_detect/realvul/jasper
+    python prepare_dataset.py --path /PDBERT/data/datasets/extrinsic/vul_detect/realvul/jasper --output /PDBERT/output/jasper
+    python prepare_dataset.py --path /PDBERT/data/datasets/extrinsic/vul_detect/realvul_test/Real_Vul --output /PDBERT/output/real_vul
 """
 
 import csv
@@ -37,7 +30,6 @@ AVAILABLE_PROJECTS = [
     "linux", "openssl", "php-src", "qemu", "tcpdump", "Real_Vul"
 ]
 
-BASE_DIR = "/PDBERT/data/datasets/extrinsic/vul_detect"
 CONTAINER_NAME = "pdbert"
 CONTAINER_SCRIPT_PATH = "/PDBERT/prepare_dataset.py"
 
@@ -126,13 +118,14 @@ def convert_to_json(csv_path: Path, source_dir: Path, output_dir: Path,
     return {"train": len(train_data), "validate": len(validate_data), "test": len(test_data), "stats": stats}
 
 
-def print_summary(project: str, result: dict, base_dir: Path):
+def print_summary(project: str, result: dict, input_dir: Path, output_dir: Path):
     """Print summary."""
     print("=" * 60)
     print("Summary")
     print("=" * 60)
     print(f"  Project:     {project}")
-    print(f"  Output:      {base_dir}")
+    print(f"  Input:       {input_dir}")
+    print(f"  Output:      {output_dir}")
     print(f"  Train:       {result['train']} samples")
     print(f"  Validate:    {result['validate']} samples")
     print(f"  Test:        {result['test']} samples")
@@ -144,22 +137,23 @@ def print_summary(project: str, result: dict, base_dir: Path):
     print("Done!")
 
 
-def process_project(project: str, base_dir: Path) -> int:
+def process_project(project: str, input_dir: Path, output_dir: Path) -> int:
     """Process dataset for a project."""
     print("=" * 60)
     print(f"RealVul Dataset Preparation for PDBERT")
     print(f"  Project: {project}")
-    print(f"  Output:  {base_dir}")
+    print(f"  Input:   {input_dir}")
+    print(f"  Output:  {output_dir}")
     print("=" * 60)
     
     if project == "Real_Vul":
-        csv_path = base_dir / "Real_Vul_data.csv"
-        source_dir = base_dir / "all_source_code"
+        csv_path = input_dir / "Real_Vul_data.csv"
+        source_dir = input_dir / "all_source_code"
         file_ext = ".c"
     else:
-        csv_path = base_dir / f"{project}_dataset.csv"
-        source_dir = base_dir / "source_code"
-        tar_path = base_dir / f"{project}_source_code.tar.gz"
+        csv_path = input_dir / f"{project}_dataset.csv"
+        source_dir = input_dir / "source_code"
+        tar_path = input_dir / f"{project}_source_code.tar.gz"
         file_ext = ""
         if not extract_source_code(tar_path, source_dir):
             return 1
@@ -168,15 +162,15 @@ def process_project(project: str, base_dir: Path) -> int:
         print(f"[ERROR] Source directory not found: {source_dir}")
         return 1
     
-    result = convert_to_json(csv_path, source_dir, base_dir, file_extension=file_ext)
+    result = convert_to_json(csv_path, source_dir, output_dir, file_extension=file_ext)
     if not result:
         return 1
     
-    print_summary(project, result, base_dir)
+    print_summary(project, result, input_dir, output_dir)
     return 0
 
 
-def run_in_container(dataset_path: str) -> int:
+def run_in_container(absolute_path: str, output_path: str | None) -> int:
     """Copy script to container and execute."""
     script_path = Path(__file__).resolve()
     
@@ -194,10 +188,11 @@ def run_in_container(dataset_path: str) -> int:
     print(f"[INFO] Executing in container '{CONTAINER_NAME}'...")
     print("-" * 60)
     
-    exec_result = subprocess.run(
-        ["docker", "exec", CONTAINER_NAME, "python3", CONTAINER_SCRIPT_PATH, "--path", dataset_path],
-        text=True
-    )
+    cmd = ["docker", "exec", CONTAINER_NAME, "python3", CONTAINER_SCRIPT_PATH, "--path", absolute_path]
+    if output_path:
+        cmd.extend(["--output", output_path])
+    
+    exec_result = subprocess.run(cmd, text=True)
     return exec_result.returncode
 
 
@@ -213,55 +208,102 @@ def check_container_running() -> bool:
         return False
 
 
+def parse_absolute_path(absolute_path: str) -> tuple[str, str] | None:
+    """
+    Parse absolute path to extract project name.
+    
+    Expected format: /.../{realvul|realvul_test}/{project}
+    
+    Returns:
+        tuple of (dataset_type, project) or None if invalid
+    """
+    path = Path(absolute_path)
+    parts = path.parts
+    
+    # 최소 경로 깊이 확인
+    if len(parts) < 2:
+        return None
+    
+    project = parts[-1]  # 마지막: project name
+    dataset_type = parts[-2]  # 그 앞: realvul or realvul_test
+    
+    # 유효성 검사
+    if dataset_type not in ["realvul", "realvul_test"]:
+        return None
+    
+    if project not in AVAILABLE_PROJECTS:
+        return None
+    
+    return (dataset_type, project)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Prepare RealVul dataset for PDBERT",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-    docker exec pdbert python /PDBERT/prepare_dataset.py --path realvul/jasper
-    docker exec pdbert python /PDBERT/prepare_dataset.py --path realvul_test/Real_Vul
+    python prepare_dataset.py --path /PDBERT/data/datasets/extrinsic/vul_detect/realvul/jasper
+    python prepare_dataset.py --path /PDBERT/data/datasets/extrinsic/vul_detect/realvul/jasper --output /PDBERT/output/jasper
+    python prepare_dataset.py --path /PDBERT/data/datasets/extrinsic/vul_detect/realvul_test/Real_Vul --output /PDBERT/output/real_vul
+    
+Available Projects:
+    Chrome, FFmpeg, ImageMagick, jasper, krb5, linux, openssl, php-src, qemu, tcpdump, Real_Vul
         """
     )
     parser.add_argument(
         "--path", 
         required=True,
-        help="Dataset path: realvul/<project> or realvul_test/<project>"
+        help="Absolute path to input dataset directory (e.g., /PDBERT/data/.../realvul/jasper)"
+    )
+    parser.add_argument(
+        "--output", "-o",
+        required=False,
+        default=None,
+        help="Absolute path to output directory (default: same as input path)"
     )
     
     args = parser.parse_args()
+    input_path = args.path
+    output_path = args.output
     
-    # Parse dataset path: realvul/jasper -> (realvul, jasper)
-    path_parts = args.path.strip('/').split('/')
-    if len(path_parts) != 2:
-        print(f"[ERROR] Invalid path format: {args.path}")
-        print("[INFO] Expected format: realvul/<project> or realvul_test/<project>")
+    # 입력 경로: 절대경로 여부 확인
+    if not input_path.startswith('/'):
+        print(f"[ERROR] Input path must be absolute (start with '/'): {input_path}")
+        print("[INFO] Example: /PDBERT/data/datasets/extrinsic/vul_detect/realvul/jasper")
         return 1
     
-    dataset_type, project = path_parts
-    
-    if dataset_type not in ["realvul", "realvul_test"]:
-        print(f"[ERROR] Invalid dataset type: {dataset_type}")
-        print("[INFO] Must be 'realvul' or 'realvul_test'")
+    # 출력 경로: 지정된 경우 절대경로 여부 확인
+    if output_path and not output_path.startswith('/'):
+        print(f"[ERROR] Output path must be absolute (start with '/'): {output_path}")
+        print("[INFO] Example: /PDBERT/output/jasper")
         return 1
     
-    if project not in AVAILABLE_PROJECTS:
-        print(f"[ERROR] Invalid project: {project}")
-        print(f"[INFO] Available: {', '.join(AVAILABLE_PROJECTS)}")
+    # 경로에서 dataset_type과 project 추출
+    parsed = parse_absolute_path(input_path)
+    if parsed is None:
+        print(f"[ERROR] Invalid path format: {input_path}")
+        print("[INFO] Expected: /.../{realvul|realvul_test}/{project}")
+        print(f"[INFO] Available projects: {', '.join(AVAILABLE_PROJECTS)}")
         return 1
     
-    # JSON 파일은 CSV와 동일한 위치에 생성 (realvul/ 또는 realvul_test/)
-    full_path = f"{BASE_DIR}/{dataset_type}"
+    dataset_type, project = parsed
+    
+    # 출력 경로 기본값: 입력 경로와 동일
+    if output_path is None:
+        output_path = input_path
     
     if is_in_container():
         # Running inside container - execute directly
-        return process_project(project, Path(full_path))
+        return process_project(project, Path(input_path), Path(output_path))
     else:
         # Running on host - copy and execute in container
         print("=" * 60)
         print("RealVul Dataset Preparation for PDBERT (Host)")
-        print(f"  Dataset Path: {args.path}")
-        print(f"  Full Path:    {full_path}")
+        print(f"  Input:        {input_path}")
+        print(f"  Output:       {output_path}")
+        print(f"  Dataset Type: {dataset_type}")
+        print(f"  Project:      {project}")
         print("=" * 60)
         
         if not check_container_running():
@@ -269,7 +311,7 @@ Examples:
             print("[INFO] Start with: docker compose up -d pdbert")
             return 1
         
-        return run_in_container(args.path)
+        return run_in_container(input_path, output_path)
 
 
 if __name__ == "__main__":
