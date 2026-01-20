@@ -36,6 +36,12 @@ def read_train_eval_from_config_args():
     # Model path (for --test-only with different model location)
     parser.add_argument('-model_path', type=str, default=None, help="Model path relative to ../data/models/extrinsic/ (e.g., vul_detect/reveal). If not specified, uses task_name.")
 
+    # Absolute path options (override relative paths)
+    parser.add_argument('-data_path', type=str, default=None, 
+                        help="Absolute path to data directory (overrides task_name based path)")
+    parser.add_argument('-model_dir', type=str, default=None, 
+                        help="Absolute path to model directory (overrides model_path based path)")
+
     # Extra configs
     parser.add_argument('-eval_script', type=str, default='eval_classification', help='test script file to do test')
     parser.add_argument('-test_batch_size', default=32, type=int)
