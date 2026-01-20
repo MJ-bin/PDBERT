@@ -23,12 +23,22 @@ python_bin = json.load(open('global_vars.json'))[platform.node()]['python_bin']
 eval_script_path = f'eval/{args.eval_script}.py'
 converted_json_file_path = f'temp_config.json'
 
-# Model path: use model_path if specified, otherwise use task_name
-model_task = args.model_path if args.model_path else args.task_name
-serialization_dir = f'../data/models/extrinsic/{model_task}/'
+# Model path: use model_dir (absolute) if specified, otherwise construct from model_path/task_name
+if args.model_dir:
+    serialization_dir = args.model_dir
+    if not serialization_dir.endswith('/'):
+        serialization_dir += '/'
+else:
+    model_task = args.model_path if args.model_path else args.task_name
+    serialization_dir = f'../data/models/extrinsic/{model_task}/'
 
-# Data path: always use task_name
-data_base_path = f'../data/datasets/extrinsic/{args.task_name}/'
+# Data path: use data_path (absolute) if specified, otherwise construct from task_name
+if args.data_path:
+    data_base_path = args.data_path
+    if not data_base_path.endswith('/'):
+        data_base_path += '/'
+else:
+    data_base_path = f'../data/datasets/extrinsic/{args.task_name}/'
 
 ############### Do Preparations ###############
 config_json = json.loads(_jsonnet.evaluate_file(args.config))
@@ -40,6 +50,8 @@ for callback in config_json['trainer']['callbacks']:
 dump_json(config_json, converted_json_file_path, indent=None)
 
 mylogger.info('main', f"Args: {args}")
+mylogger.info('main', f"Data path: {data_base_path}")
+mylogger.info('main', f"Model path: {serialization_dir}")
 
 ############### Do Train ###############
 # Skip training if --test-only is specified
