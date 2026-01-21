@@ -23,6 +23,7 @@ import subprocess
 import sys
 import os
 from pathlib import Path
+from typing import Optional, Tuple, Dict
 
 
 AVAILABLE_PROJECTS = [
@@ -170,7 +171,7 @@ def process_project(project: str, input_dir: Path, output_dir: Path) -> int:
     return 0
 
 
-def run_in_container(absolute_path: str, output_path: str | None) -> int:
+def run_in_container(absolute_path: str, output_path: Optional[str]) -> int:
     """Copy script to container and execute."""
     script_path = Path(__file__).resolve()
     
@@ -208,7 +209,7 @@ def check_container_running() -> bool:
         return False
 
 
-def parse_absolute_path(absolute_path: str) -> tuple[str, str] | None:
+def parse_absolute_path(absolute_path: str) -> Optional[Tuple[str, str]]:
     """
     Parse absolute path to extract project name.
     
