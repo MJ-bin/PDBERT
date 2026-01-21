@@ -103,7 +103,7 @@ local debug = false;
       lr: 1e-5
     },
     num_gradient_accumulation_steps: 8,
-    use_amp: true,
+    use_amp: false,
     callbacks: [
       { type: "epoch_print" },
     ],
