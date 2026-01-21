@@ -1,4 +1,4 @@
-local data_base_path = '/PDBERT/data/datasets/extrinsic/vul_detect/realvul/';
+local data_base_path = '/PDBERT/data/datasets/extrinsic/vul_detect/realvul/Real_Vul/';
 local pretrained_model = '../data/models/pdbert-base';
 local code_embed_dim = 768;
 local code_encode_dim = 768;
