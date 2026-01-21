@@ -25,6 +25,9 @@ import os
 from pathlib import Path
 from typing import Optional, Tuple, Dict
 
+# CSV 필드 크기 제한 해제 (processed_func에 큰 코드가 있을 수 있음)
+csv.field_size_limit(sys.maxsize)
+
 
 AVAILABLE_PROJECTS = [
     "Chrome", "FFmpeg", "ImageMagick", "jasper", "krb5",
@@ -68,10 +71,9 @@ def extract_source_code(tar_path: Path, extract_dir: Path) -> bool:
         print(f"[ERROR] Failed to extract: {e}")
         return False
 
-
 def convert_to_json(csv_path: Path, source_dir: Path, output_dir: Path,
                    file_name_key: str = 'file_name', file_extension: str = '') -> dict:
-    """Convert CSV dataset to JSON format for PDBERT."""
+    """Convert CSV dataset to JSON format for PDBERT (with source code mapping)."""
     if not csv_path.exists():
         print(f"[ERROR] CSV not found: {csv_path}")
         return {}
@@ -119,6 +121,56 @@ def convert_to_json(csv_path: Path, source_dir: Path, output_dir: Path,
     return {"train": len(train_data), "validate": len(validate_data), "test": len(test_data), "stats": stats}
 
 
+def convert_to_json_from_csv(csv_path: Path, output_dir: Path) -> dict:
+    """Convert CSV dataset to JSON format using processed_func column directly."""
+    if not csv_path.exists():
+        print(f"[ERROR] CSV not found: {csv_path}")
+        return {}
+    
+    random.seed(42)
+    train_val_data, test_data = [], []
+    stats = {"total": 0, "valid": 0, "empty": 0, "vul": 0, "non_vul": 0}
+    
+    print(f"[INFO] Reading CSV (using processed_func column): {csv_path}")
+    with open(csv_path, 'r', encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        
+        # Check if processed_func column exists
+        if 'processed_func' not in reader.fieldnames:
+            print(f"[ERROR] 'processed_func' column not found in CSV")
+            print(f"[INFO] Available columns: {reader.fieldnames}")
+            print(f"[INFO] Use --add-processed-func option to map from source files")
+            return {}
+        
+        for row in reader:
+            stats["total"] += 1
+            
+            code = row.get('processed_func', '').strip()
+            if not code:
+                stats["empty"] += 1
+                continue
+            
+            stats["valid"] += 1
+            vul = 1 if row.get('vulnerable_line_numbers', '').strip() else 0
+            stats["vul" if vul else "non_vul"] += 1
+            
+            item = {"code": code, "vul": vul}
+            dataset_type = row.get('dataset_type', 'train_val')
+            (train_val_data if dataset_type == "train_val" else test_data).append(item)
+    
+    random.shuffle(train_val_data)
+    split_idx = int(len(train_val_data) * 0.8)
+    train_data, validate_data = train_val_data[:split_idx], train_val_data[split_idx:]
+    
+    output_dir.mkdir(parents=True, exist_ok=True)
+    for name, data in [("train", train_data), ("validate", validate_data), ("test", test_data)]:
+        with open(output_dir / f"{name}.json", 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=4)
+        print(f"[INFO] Created: {output_dir / f'{name}.json'} ({len(data)} samples)")
+    
+    return {"train": len(train_data), "validate": len(validate_data), "test": len(test_data), "stats": stats}
+
+
 def print_summary(project: str, result: dict, input_dir: Path, output_dir: Path):
     """Print summary."""
     print("=" * 60)
@@ -132,38 +184,52 @@ def print_summary(project: str, result: dict, input_dir: Path, output_dir: Path)
     print(f"  Test:        {result['test']} samples")
     print(f"  ---")
     s = result['stats']
-    print(f"  Total: {s['total']}, Found: {s['found']}, NotFound: {s['not_found']}, Empty: {s['empty']}")
+    # convert_to_json uses 'found', convert_to_json_from_csv uses 'valid'
+    if 'found' in s:
+        print(f"  Total: {s['total']}, Found: {s['found']}, NotFound: {s['not_found']}, Empty: {s['empty']}")
+    else:
+        print(f"  Total: {s['total']}, Valid: {s['valid']}, Empty: {s['empty']}")
     print(f"  Vulnerable: {s['vul']}, Non-vulnerable: {s['non_vul']}")
     print("=" * 60)
     print("Done!")
 
 
-def process_project(project: str, input_dir: Path, output_dir: Path) -> int:
+def process_project(project: str, input_dir: Path, output_dir: Path, add_processed_func: bool = False) -> int:
     """Process dataset for a project."""
     print("=" * 60)
     print(f"RealVul Dataset Preparation for PDBERT")
     print(f"  Project: {project}")
     print(f"  Input:   {input_dir}")
     print(f"  Output:  {output_dir}")
+    print(f"  Mode:    {'Source file mapping' if add_processed_func else 'Using processed_func column'}")
     print("=" * 60)
     
     if project == "Real_Vul":
         csv_path = input_dir / "Real_Vul_data.csv"
-        source_dir = input_dir / "all_source_code"
-        file_ext = ".c"
     else:
         csv_path = input_dir / f"{project}_dataset.csv"
-        source_dir = input_dir / "source_code"
-        tar_path = input_dir / f"{project}_source_code.tar.gz"
-        file_ext = ""
-        if not extract_source_code(tar_path, source_dir):
+    
+    if add_processed_func:
+        # 기존 로직: source code 파일에서 매핑
+        if project == "Real_Vul":
+            source_dir = input_dir / "all_source_code"
+            file_ext = ".c"
+        else:
+            source_dir = input_dir / "source_code"
+            tar_path = input_dir / f"{project}_source_code.tar.gz"
+            file_ext = ""
+            if not extract_source_code(tar_path, source_dir):
+                return 1
+        
+        if not source_dir.exists():
+            print(f"[ERROR] Source directory not found: {source_dir}")
             return 1
+        
+        result = convert_to_json(csv_path, source_dir, output_dir, file_extension=file_ext)
+    else:
+        # 새 로직: CSV의 processed_func 컬럼 사용
+        result = convert_to_json_from_csv(csv_path, output_dir)
     
-    if not source_dir.exists():
-        print(f"[ERROR] Source directory not found: {source_dir}")
-        return 1
-    
-    result = convert_to_json(csv_path, source_dir, output_dir, file_extension=file_ext)
     if not result:
         return 1
     
@@ -171,7 +237,7 @@ def process_project(project: str, input_dir: Path, output_dir: Path) -> int:
     return 0
 
 
-def run_in_container(absolute_path: str, output_path: Optional[str]) -> int:
+def run_in_container(absolute_path: str, output_path: Optional[str], add_processed_func: bool = False) -> int:
     """Copy script to container and execute."""
     script_path = Path(__file__).resolve()
     
@@ -192,6 +258,8 @@ def run_in_container(absolute_path: str, output_path: Optional[str]) -> int:
     cmd = ["docker", "exec", CONTAINER_NAME, "python3", CONTAINER_SCRIPT_PATH, "--path", absolute_path]
     if output_path:
         cmd.extend(["--output", output_path])
+    if add_processed_func:
+        cmd.append("--add-processed-func")
     
     exec_result = subprocess.run(cmd, text=True)
     return exec_result.returncode
@@ -228,8 +296,8 @@ def parse_absolute_path(absolute_path: str) -> Optional[Tuple[str, str]]:
     project = parts[-1]  # 마지막: project name
     dataset_type = parts[-2]  # 그 앞: realvul or realvul_test
     
-    # 유효성 검사
-    if dataset_type not in ["realvul", "realvul_test"]:
+    # 유효성 검사 (vpbench도 지원)
+    if dataset_type not in ["realvul", "realvul_test", "vpbench"]:
         return None
     
     if project not in AVAILABLE_PROJECTS:
@@ -263,10 +331,17 @@ Available Projects:
         default=None,
         help="Absolute path to output directory (default: same as input path)"
     )
+    parser.add_argument(
+        "--add-processed-func",
+        action="store_true",
+        default=False,
+        help="Map code from source files (all_source_code/source_code). Without this flag, uses processed_func column from CSV."
+    )
     
     args = parser.parse_args()
     input_path = args.path
     output_path = args.output
+    add_processed_func = args.add_processed_func
     
     # 입력 경로: 절대경로 여부 확인
     if not input_path.startswith('/'):
@@ -296,7 +371,7 @@ Available Projects:
     
     if is_in_container():
         # Running inside container - execute directly
-        return process_project(project, Path(input_path), Path(output_path))
+        return process_project(project, Path(input_path), Path(output_path), add_processed_func)
     else:
         # Running on host - copy and execute in container
         print("=" * 60)
@@ -312,7 +387,7 @@ Available Projects:
             print("[INFO] Start with: docker compose up -d pdbert")
             return 1
         
-        return run_in_container(input_path, output_path)
+        return run_in_container(input_path, output_path, add_processed_func)
 
 
 if __name__ == "__main__":
