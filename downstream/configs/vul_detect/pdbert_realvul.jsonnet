@@ -107,6 +107,8 @@ local debug = false;
     callbacks: [
       { type: "epoch_print" },
     ],
-    checkpointer: null,
+    checkpointer: {
+      keep_most_recent_by_count: 2
+    },
   },
 }
