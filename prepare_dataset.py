@@ -71,8 +71,9 @@ def extract_source_code(tar_path: Path, extract_dir: Path) -> bool:
         print(f"[ERROR] Failed to extract: {e}")
         return False
 
+
 def convert_to_json(csv_path: Path, source_dir: Path, output_dir: Path,
-                   file_name_key: str = 'file_name', file_extension: str = '') -> dict:
+                   join_key: str = 'unique_id', file_extension: str = '') -> dict:
     """Convert CSV dataset to JSON format for PDBERT (with source code mapping)."""
     if not csv_path.exists():
         print(f"[ERROR] CSV not found: {csv_path}")
@@ -87,11 +88,12 @@ def convert_to_json(csv_path: Path, source_dir: Path, output_dir: Path,
     stats = {"total": 0, "found": 0, "not_found": 0, "empty": 0, "vul": 0, "non_vul": 0}
     
     print(f"[INFO] Reading CSV: {csv_path}")
+    print(f"[INFO] Join key: {join_key}")
     with open(csv_path, 'r', encoding='utf-8') as f:
         for row in csv.DictReader(f):
             stats["total"] += 1
             
-            source_file = source_dir / (row[file_name_key] + file_extension)
+            source_file = source_dir / (row[join_key] + file_extension)
             if not source_file.exists():
                 stats["not_found"] += 1
                 continue
@@ -201,7 +203,7 @@ def process_project(project: str, input_dir: Path, output_dir: Path, add_process
     print(f"  Project: {project}")
     print(f"  Input:   {input_dir}")
     print(f"  Output:  {output_dir}")
-    print(f"  Mode:    {'Source file mapping' if add_processed_func else 'Using processed_func column'}")
+    print(f"  Mode:    {'Source file mapping (join by unique_id)' if add_processed_func else 'Using processed_func column'}")
     print("=" * 60)
     
     if project == "Real_Vul":
@@ -210,7 +212,7 @@ def process_project(project: str, input_dir: Path, output_dir: Path, add_process
         csv_path = input_dir / f"{project}_dataset.csv"
     
     if add_processed_func:
-        # 기존 로직: source code 파일에서 매핑
+        # 기존 로직: source code 파일에서 매핑 (unique_id 기준)
         if project == "Real_Vul":
             source_dir = input_dir / "all_source_code"
             file_ext = ".c"
@@ -225,7 +227,8 @@ def process_project(project: str, input_dir: Path, output_dir: Path, add_process
             print(f"[ERROR] Source directory not found: {source_dir}")
             return 1
         
-        result = convert_to_json(csv_path, source_dir, output_dir, file_extension=file_ext)
+        result = convert_to_json(csv_path, source_dir, output_dir, 
+                                 join_key='unique_id', file_extension=file_ext)
     else:
         # 새 로직: CSV의 processed_func 컬럼 사용
         result = convert_to_json_from_csv(csv_path, output_dir)
@@ -335,7 +338,7 @@ Available Projects:
         "--add-processed-func",
         action="store_true",
         default=False,
-        help="Map code from source files (all_source_code/source_code). Without this flag, uses processed_func column from CSV."
+        help="Map code from source files using unique_id as join key. Without this flag, uses processed_func column from CSV."
     )
     
     args = parser.parse_args()
